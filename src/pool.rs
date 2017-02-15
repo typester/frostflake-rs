@@ -101,7 +101,7 @@ impl GeneratorPool {
     }
 
     pub fn extract(&self, id: u64) -> (u64, u64, u64, u64) {
-        let (_, pool_bits, node_bits, seq_bits) = self.opts.bits;
+        let (_, pool_bits, node_bits, _) = self.opts.bits;
         let (ts, poolnode, seq) = self.get_generator().extract(id);
 
         let pool = (poolnode >> node_bits) & super::max(pool_bits);
@@ -128,7 +128,7 @@ impl InnerPool {
             .time_fn(opts.time_fn);
 
         for i in 0..size {
-            let (_, pool_bits, node_bits, _) = opts.bits;
+            let (_, _, node_bits, _) = opts.bits;
             let pool_mask = super::bitmask(node_bits);
             let node_mask = super::max(node_bits);
 

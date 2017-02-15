@@ -2,7 +2,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::u64::MAX;
 
-mod pool;
+pub mod pool;
+
+pub use pool::{GeneratorPool, GeneratorPoolOptions};
 
 #[derive(Clone)]
 pub struct GeneratorOptions {
