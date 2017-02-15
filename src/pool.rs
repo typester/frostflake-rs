@@ -96,6 +96,10 @@ impl GeneratorPool {
         }
     }
 
+    pub fn generate(&self) -> u64 {
+        self.get_generator().generate()
+    }
+
     pub fn extract(&self, id: u64) -> (u64, u64, u64, u64) {
         let (_, pool_bits, node_bits, seq_bits) = self.opts.bits;
         let (ts, poolnode, seq) = self.get_generator().extract(id);
@@ -209,25 +213,38 @@ fn test_options_set_time_fn() {
 
 #[cfg(test)]
 use std::thread;
+#[cfg(test)]
+use std::collections::HashMap;
 
 #[test]
 fn test_pool() {
-    let pool = GeneratorPool::new(10, GeneratorPoolOptions::default());
+    let pool = GeneratorPool::new(3, GeneratorPoolOptions::default());
 
-    println!("generated: {}",
-             pool.get_generator().generator.as_mut().unwrap().generate());
-    println!("generated: {}",
-             pool.get_generator().generator.as_mut().unwrap().generate());
-    println!("generated: {}",
-             pool.get_generator().generator.as_mut().unwrap().generate());
-    println!("generated: {}",
-             pool.get_generator().generator.as_mut().unwrap().generate());
-    println!("generated: {}",
-             pool.get_generator().generator.as_mut().unwrap().generate());
-    println!("generated: {}",
-             pool.get_generator().generator.as_mut().unwrap().generate());
-    println!("generated: {}",
-             pool.get_generator().generator.as_mut().unwrap().generate());
+    let mut handles = vec![];
+    let mut results = Arc::new(Mutex::new(vec![]));
+
+    for _ in 0..10 {
+        let pool = pool.clone();
+        let results = results.clone();
+
+        handles.push(thread::spawn(move || for _ in 0..10 {
+            let mut results = results.lock().unwrap();
+            results.push(pool.generate());
+        }));
+    }
+
+    for h in handles {
+        h.join();
+    }
+
+    let mut hash: HashMap<u64, u64> = HashMap::new();
+    let mut results = results.lock().unwrap();
+    for r in results.iter() {
+        // check uniqueness
+        assert_eq!(hash.contains_key(r), false);
+        hash.insert(*r, 1);
+        assert_eq!(hash.contains_key(r), true);
+    }
 }
 
 #[test]
