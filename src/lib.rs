@@ -2,6 +2,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::u64::MAX;
 
+mod pool;
+
+#[derive(Clone)]
 pub struct GeneratorOptions {
     bits: (u8, u8, u8),
     base_ts: u64,
@@ -15,13 +18,13 @@ pub struct Generator {
     seq: u64,
 }
 
+fn default_time_fn() -> u64 {
+    let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    t.as_secs() * 1000 + (t.subsec_nanos() as u64) / 1000000
+}
+
 impl GeneratorOptions {
     pub fn default() -> GeneratorOptions {
-        fn default_time_fn() -> u64 {
-            let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-            t.as_secs() * 1000 + (t.subsec_nanos() as u64) / 1000000
-        };
-
         GeneratorOptions {
             bits: (42, 10, 12),
             base_ts: 1483228800000, // 2017-01-01T00:00:00Z as milliseconds
@@ -66,11 +69,15 @@ impl GeneratorOptions {
 
 impl Generator {
     pub fn new(opts: GeneratorOptions) -> Arc<Mutex<Generator>> {
-        Arc::new(Mutex::new(Generator {
+        Arc::new(Mutex::new(Generator::new_raw(opts)))
+    }
+
+    pub fn new_raw(opts: GeneratorOptions) -> Generator {
+        Generator {
             opts: opts,
             last_ts: 0,
             seq: 0,
-        }))
+        }
     }
 
     pub fn generate(&mut self) -> u64 {
