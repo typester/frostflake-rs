@@ -95,6 +95,8 @@ impl Generator {
 
         let (_, node_bits, seq_bits) = self.opts.bits;
 
+        assert!(seq <= max(seq_bits), "seq number exceeds seq_bits!");
+
         let ts_mask = bitmask(node_bits + seq_bits);
         let node_mask = bitmask(seq_bits) ^ ts_mask;
 
