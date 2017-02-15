@@ -1,0 +1,6 @@
+[package]
+name = "customflake"
+version = "0.1.0"
+authors = ["Daisuke Murase <typester@cpan.org>"]
+
+[dependencies]
