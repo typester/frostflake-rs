@@ -1,5 +1,5 @@
 [package]
-name = "customflake"
+name = "frostflake"
 version = "0.1.0"
 authors = ["Daisuke Murase <typester@cpan.org>"]
 
