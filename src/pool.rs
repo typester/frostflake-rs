@@ -95,6 +95,16 @@ impl GeneratorPool {
             generator: Some(out_generator),
         }
     }
+
+    pub fn extract(&self, id: u64) -> (u64, u64, u64, u64) {
+        let (_, pool_bits, node_bits, seq_bits) = self.opts.bits;
+        let (ts, poolnode, seq) = self.get_generator().extract(id);
+
+        let pool = (poolnode >> node_bits) & super::max(pool_bits);
+        let node = poolnode & super::max(node_bits);
+
+        (ts, pool, node, seq)
+    }
 }
 
 struct InnerPool {
@@ -110,7 +120,8 @@ impl InnerPool {
         let generator_opts = GeneratorOptions::default()
             .base_ts(0)
             .bits(opts.bits.0, opts.bits.1 + opts.bits.2, opts.bits.3)
-            .base_ts(opts.base_ts);
+            .base_ts(opts.base_ts)
+            .time_fn(opts.time_fn);
 
         for i in 0..size {
             let (_, pool_bits, node_bits, _) = opts.bits;
@@ -139,6 +150,16 @@ impl Drop for PooledGenerator {
         pool.pool.push_back(self.generator.take().unwrap());
         drop(pool);
         (self.pool.inner).1.notify_one();
+    }
+}
+
+impl PooledGenerator {
+    pub fn generate(&mut self) -> u64 {
+        self.generator.as_mut().unwrap().generate()
+    }
+
+    pub fn extract(&self, id: u64) -> (u64, u64, u64) {
+        self.generator.as_ref().unwrap().extract(id)
     }
 }
 
@@ -207,4 +228,113 @@ fn test_pool() {
              pool.get_generator().generator.as_mut().unwrap().generate());
     println!("generated: {}",
              pool.get_generator().generator.as_mut().unwrap().generate());
+}
+
+#[test]
+fn test_pool_extract() {
+    fn test_fn() -> u64 {
+        1483228800000 + 12345
+    }
+
+    let opts = GeneratorPoolOptions::default().time_fn(test_fn);
+
+    let pool = GeneratorPool::new(1, opts);
+
+    let id = pool.get_generator().generate();
+    let (ts, node, seq) = pool.get_generator().extract(id);
+    assert_eq!(ts, 12345);
+    assert_eq!(node, 0);
+    assert_eq!(seq, 0);
+
+    let id = pool.get_generator().generate();
+    let (ts, node, seq) = pool.get_generator().extract(id);
+    assert_eq!(ts, 12345);
+    assert_eq!(node, 0);
+    assert_eq!(seq, 1);
+}
+
+#[test]
+fn test_pool_extract_poolnode() {
+    fn test_fn() -> u64 {
+        1483228800000 + 12345
+    }
+
+    let opts = GeneratorPoolOptions::default().time_fn(test_fn).node(3);
+
+    let pool = GeneratorPool::new(3, opts);
+
+    let mut g1 = pool.get_generator();
+    let mut g2 = pool.get_generator();
+    let mut g3 = pool.get_generator();
+
+    let id1_1 = g1.generate();
+    let id1_2 = g1.generate();
+
+    let id2_1 = g2.generate();
+    let id2_2 = g2.generate();
+
+    let id3_1 = g3.generate();
+    let id3_2 = g3.generate();
+
+    drop(g1);
+
+    let (ts, pool_id, node, seq) = pool.extract(id1_1);
+    assert_eq!(ts, 12345);
+    assert_eq!(pool_id, 0);
+    assert_eq!(node, 3);
+    assert_eq!(seq, 0);
+
+    let (ts, pool_id, node, seq) = pool.extract(id1_2);
+    assert_eq!(ts, 12345);
+    assert_eq!(pool_id, 0);
+    assert_eq!(node, 3);
+    assert_eq!(seq, 1);
+
+    let (ts, pool_id, node, seq) = pool.extract(id2_1);
+    assert_eq!(ts, 12345);
+    assert_eq!(pool_id, 1);
+    assert_eq!(node, 3);
+    assert_eq!(seq, 0);
+
+    let (ts, pool_id, node, seq) = pool.extract(id2_2);
+    assert_eq!(ts, 12345);
+    assert_eq!(pool_id, 1);
+    assert_eq!(node, 3);
+    assert_eq!(seq, 1);
+
+    let (ts, pool_id, node, seq) = pool.extract(id3_1);
+    assert_eq!(ts, 12345);
+    assert_eq!(pool_id, 2);
+    assert_eq!(node, 3);
+    assert_eq!(seq, 0);
+
+    let (ts, pool_id, node, seq) = pool.extract(id3_2);
+    assert_eq!(ts, 12345);
+    assert_eq!(pool_id, 2);
+    assert_eq!(node, 3);
+    assert_eq!(seq, 1);
+}
+
+#[test]
+fn test_pool_len() {
+    let pool = GeneratorPool::new(10, GeneratorPoolOptions::default());
+
+    {
+        let pool = (pool.inner).0.lock().unwrap();
+        assert_eq!(pool.pool.len(), 10);
+    }
+
+    let g = pool.get_generator();
+
+    {
+        let pool = (pool.inner).0.lock().unwrap();
+        assert_eq!(pool.pool.len(), 9);
+    }
+
+    drop(g);
+
+    {
+        let pool = (pool.inner).0.lock().unwrap();
+        assert_eq!(pool.pool.len(), 10);
+    }
 }
