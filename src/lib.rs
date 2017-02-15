@@ -102,6 +102,16 @@ impl Generator {
         ((elapsed << (node_bits + seq_bits)) & ts_mask) |
         ((self.opts.node << seq_bits) & node_mask) | seq & max(seq_bits)
     }
+
+    pub fn extract(&self, id: u64) -> (u64, u64, u64) {
+        let (ts_bits, node_bits, seq_bits) = self.opts.bits;
+
+        let ts = (id >> (node_bits + seq_bits)) & max(ts_bits);
+        let node = (id >> seq_bits) & max(node_bits);
+        let seq = id & max(seq_bits);
+
+        (ts, node, seq)
+    }
 }
 
 fn bitmask(shift: u8) -> u64 {
@@ -126,6 +136,32 @@ fn test_basic() {
     assert_eq!(g.generate(), (123 << 22));
     assert_eq!(g.generate(), (123 << 22) + 1);
     assert_eq!(g.generate(), (123 << 22) + 2);
+
+}
+
+#[test]
+fn test_extract() {
+    fn my_time_fn() -> u64 {
+        1483228800000 + 123
+    }
+
+    let opts = GeneratorOptions::default().time_fn(my_time_fn).node(3);
+
+    let g = Generator::new(opts);
+
+    let mut g = g.lock().unwrap();
+
+    let id = g.generate();
+    let (ts, node, seq) = g.extract(id);
+    assert_eq!(ts, 123);
+    assert_eq!(node, 3);
+    assert_eq!(seq, 0);
+
+    let id = g.generate();
+    let (ts, node, seq) = g.extract(id);
+    assert_eq!(ts, 123);
+    assert_eq!(node, 3);
+    assert_eq!(seq, 1);
 }
 
 #[test]
