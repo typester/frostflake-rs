@@ -48,7 +48,7 @@ frostflake is highly configurable.
 use frostflake::{Generator, GeneratorOptions};
 
 let opts = GeneratorOptions::default()
-    .base_ts(0) // need this for avoid time exceeding on smaller bit size
+    .base_ts(0) // need this for avoid exceeding time value on smaller bit size
     .bits(42, 10, 12)           // 42bit timestamp, 10bit node, 12bit sequence
     .base_ts(1483228800000)     // base time 2017-01-01T00:00:00Z as milliseonds
     .node(3);                   // node number
@@ -82,6 +82,8 @@ let generator = Generator::new(opts);
 
 #### Generator
 
+|Options| Default value|
+|---|---|
 |bits| 42=timestamp, 10=node, 12=sequence |
 |base\_ts|1483228800000 (2017-01-01T00:00:00Z as milliseonds)|
 |node|0|
@@ -93,4 +95,8 @@ Almost same as Generator, but GeneratorPool uses `pool_id` bit for distinguish e
 
 So default bit widths is:
 
+|Options| Default value|
+|---|---|
 |bits| 42=timestamp, 4=pool_id, 6=node, 12=sequence |
+
+All other options are same with Generator.
