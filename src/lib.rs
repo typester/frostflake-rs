@@ -44,7 +44,6 @@
 //!use frostflake::{Generator, GeneratorOptions};
 //!
 //!let opts = GeneratorOptions::default()
-//!    .base_ts(0) // need this for avoid exceeding time value on smaller bit size
 //!    .bits(42, 10, 12)           // 42bit timestamp, 10bit node, 12bit sequence
 //!    .base_ts(1483228800000)     // base time 2017-01-01T00:00:00Z as milliseonds
 //!    .node(3);                   // node number
@@ -67,6 +66,7 @@
 //!// use smaller time bits (because this is not milliseconds)
 //!// use larger sequence bits
 //!let opts = GeneratorOptions::default()
+//!    .base_ts(0) // need this for avoid exceeding time value on smaller bit size
 //!    .bits(36, 10, 18)
 //!    .base_ts(1483228800) // base time should be second too
 //!    .time_fn(my_time); // set my time function
