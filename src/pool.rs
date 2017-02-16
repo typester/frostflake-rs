@@ -221,7 +221,7 @@ fn test_pool() {
     let pool = GeneratorPool::new(3, GeneratorPoolOptions::default());
 
     let mut handles = vec![];
-    let mut results = Arc::new(Mutex::new(vec![]));
+    let results = Arc::new(Mutex::new(vec![]));
 
     for _ in 0..10 {
         let pool = pool.clone();
@@ -234,11 +234,11 @@ fn test_pool() {
     }
 
     for h in handles {
-        h.join();
+        let _ = h.join();
     }
 
     let mut hash: HashMap<u64, u64> = HashMap::new();
-    let mut results = results.lock().unwrap();
+    let results = results.lock().unwrap();
     for r in results.iter() {
         // check uniqueness
         assert_eq!(hash.contains_key(r), false);
