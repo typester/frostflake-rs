@@ -10,3 +10,4 @@ categories = ["database"]
 license = "MIT"
 
 [dependencies]
+crossbeam = "0.2.10"

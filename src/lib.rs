@@ -97,6 +97,8 @@
 //!
 //!All other options are same with Generator.
 
+extern crate crossbeam;
+
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::u64::MAX;

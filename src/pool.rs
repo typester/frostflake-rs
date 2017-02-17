@@ -1,5 +1,6 @@
-use std::sync::{Arc, Mutex, Condvar};
-use std::collections::VecDeque;
+use std::sync::Arc;
+use std::thread;
+use crossbeam::sync::MsQueue;
 
 use super::{Generator, GeneratorOptions};
 
@@ -57,52 +58,77 @@ impl GeneratorPoolOptions {
     }
 }
 
-#[derive(Clone)]
+enum Message {
+    Job,
+    Exit,
+}
+
 pub struct GeneratorPool {
     size: usize,
     opts: GeneratorPoolOptions,
-    inner: Arc<(Mutex<InnerPool>, Condvar)>,
+    jobq: Arc<MsQueue<Message>>,
+    resq: Arc<MsQueue<u64>>,
 }
 
 impl GeneratorPool {
-    pub fn new(size: usize, opts: GeneratorPoolOptions) -> GeneratorPool {
-        let pool = InnerPool::new(size, opts.clone());
+    pub fn new(size: usize, opts: GeneratorPoolOptions) -> Arc<GeneratorPool> {
+        let generator_opts = GeneratorPool::generator_opts(opts.clone());
 
-        GeneratorPool {
+        let jobq = Arc::new(MsQueue::new());
+        let resq = Arc::new(MsQueue::new());
+
+        for i in 0..size {
+            let jobq = jobq.clone();
+            let resq = resq.clone();
+
+            let (_, _, node_bits, _) = opts.bits;
+            let pool_mask = super::bitmask(node_bits);
+            let node_mask = super::max(node_bits);
+
+            let opts = generator_opts.clone()
+                .node((((i as u64) << node_bits) & pool_mask) | (opts.node & node_mask));
+
+            thread::spawn(move || {
+                let mut generator = Generator::new_raw(opts);
+
+                loop {
+                    let msg = jobq.pop();
+
+                    match msg {
+                        Message::Job => {
+                            resq.push(generator.generate());
+                        }
+                        Message::Exit => break,
+                    }
+                }
+            });
+        }
+
+        Arc::new(GeneratorPool {
             size: size,
             opts: opts,
-            inner: Arc::new((Mutex::new(pool), Condvar::new())),
-        }
+            jobq: jobq,
+            resq: resq,
+        })
     }
 
-    pub fn get_generator(&self) -> PooledGenerator {
-        let &(ref inner_pool, ref cv) = &*self.inner;
-
-        let out_generator;
-        let mut pool = inner_pool.lock().unwrap();
-        loop {
-            if let Some(generator) = pool.pool.pop_front() {
-                drop(pool);
-                out_generator = generator;
-                break;
-            } else {
-                pool = cv.wait(pool).unwrap();
-            }
-        }
-
-        PooledGenerator {
-            pool: self.clone(),
-            generator: Some(out_generator),
-        }
+    fn generator_opts(opts: GeneratorPoolOptions) -> GeneratorOptions {
+        GeneratorOptions::default()
+            .base_ts(0)
+            .bits(opts.bits.0, opts.bits.1 + opts.bits.2, opts.bits.3)
+            .base_ts(opts.base_ts)
+            .time_fn(opts.time_fn)
     }
 
     pub fn generate(&self) -> u64 {
-        self.get_generator().generate()
+        self.jobq.push(Message::Job);
+        self.resq.pop()
     }
 
     pub fn extract(&self, id: u64) -> (u64, u64, u64, u64) {
+        let g = Generator::new_raw(GeneratorPool::generator_opts(self.opts.clone()));
         let (_, pool_bits, node_bits, _) = self.opts.bits;
-        let (ts, poolnode, seq) = self.get_generator().extract(id);
+        let (ts, poolnode, seq) = g.extract(id);
 
         let pool = (poolnode >> node_bits) & super::max(pool_bits);
         let node = poolnode & super::max(node_bits);
@@ -111,61 +137,16 @@ impl GeneratorPool {
     }
 }
 
-struct InnerPool {
-    pool: VecDeque<Generator>,
-}
-
-impl InnerPool {
-    fn new(size: usize, opts: GeneratorPoolOptions) -> InnerPool {
-        assert!(size > 0, "pool size should be positive");
-
-        let mut pool = InnerPool { pool: VecDeque::with_capacity(size) };
-
-        let generator_opts = GeneratorOptions::default()
-            .base_ts(0)
-            .bits(opts.bits.0, opts.bits.1 + opts.bits.2, opts.bits.3)
-            .base_ts(opts.base_ts)
-            .time_fn(opts.time_fn);
-
-        for i in 0..size {
-            let (_, _, node_bits, _) = opts.bits;
-            let pool_mask = super::bitmask(node_bits);
-            let node_mask = super::max(node_bits);
-
-            let opts = generator_opts.clone()
-                .node((((i as u64) << node_bits) & pool_mask) | (opts.node & node_mask));
-
-            let generator = Generator::new_raw(opts);
-            pool.pool.push_back(generator);
-        }
-
-        pool
-    }
-}
-
-pub struct PooledGenerator {
-    pool: GeneratorPool,
-    generator: Option<Generator>,
-}
-
-impl Drop for PooledGenerator {
+impl Drop for GeneratorPool {
     fn drop(&mut self) {
-        let mut pool = (self.pool.inner).0.lock().unwrap();
-        pool.pool.push_back(self.generator.take().unwrap());
-        drop(pool);
-        (self.pool.inner).1.notify_one();
+        for _ in 0..self.size {
+            self.jobq.push(Message::Exit);
+        }
     }
 }
 
-impl PooledGenerator {
-    pub fn generate(&mut self) -> u64 {
-        self.generator.as_mut().unwrap().generate()
-    }
-
-    pub fn extract(&self, id: u64) -> (u64, u64, u64) {
-        self.generator.as_ref().unwrap().extract(id)
-    }
-}
+#[cfg(test)]
+use std::sync::Mutex;
 
 #[test]
 fn test_options_default() {
@@ -212,8 +193,6 @@ fn test_options_set_time_fn() {
 }
 
 #[cfg(test)]
-use std::thread;
-#[cfg(test)]
 use std::collections::HashMap;
 
 #[test]
@@ -255,16 +234,18 @@ fn test_pool_extract() {
 
     let opts = GeneratorPoolOptions::default().time_fn(test_fn);
 
-    let pool = GeneratorPool::new(1, opts);
+    let pool = GeneratorPool::new(1, opts.clone());
 
-    let id = pool.get_generator().generate();
-    let (ts, node, seq) = pool.get_generator().extract(id);
+    let g = Generator::new_raw(GeneratorPool::generator_opts(opts.clone()));
+
+    let id = pool.generate();
+    let (ts, node, seq) = g.extract(id);
     assert_eq!(ts, 12345);
     assert_eq!(node, 0);
     assert_eq!(seq, 0);
 
-    let id = pool.get_generator().generate();
-    let (ts, node, seq) = pool.get_generator().extract(id);
+    let id = pool.generate();
+    let (ts, node, seq) = g.extract(id);
     assert_eq!(ts, 12345);
     assert_eq!(node, 0);
     assert_eq!(seq, 1);
@@ -278,80 +259,28 @@ fn test_pool_extract_poolnode() {
 
     let opts = GeneratorPoolOptions::default().time_fn(test_fn).node(3);
 
-    let pool = GeneratorPool::new(3, opts);
+    let pool = GeneratorPool::new(2, opts);
 
-    let mut g1 = pool.get_generator();
-    let mut g2 = pool.get_generator();
-    let mut g3 = pool.get_generator();
+    let mut ok = (false, false);
+    let mut counters = (0, 0);
+    for _ in 1..10 {
+        let id = pool.generate();
+        let (ts, pool_id, node, seq) = pool.extract(id);
 
-    let id1_1 = g1.generate();
-    let id1_2 = g1.generate();
+        assert_eq!(ts, 12345);
+        assert_eq!(node, 3);
+        assert!(pool_id == 0 || pool_id == 1);
 
-    let id2_1 = g2.generate();
-    let id2_2 = g2.generate();
-
-    let id3_1 = g3.generate();
-    let id3_2 = g3.generate();
-
-    drop(g1);
-
-    let (ts, pool_id, node, seq) = pool.extract(id1_1);
-    assert_eq!(ts, 12345);
-    assert_eq!(pool_id, 0);
-    assert_eq!(node, 3);
-    assert_eq!(seq, 0);
-
-    let (ts, pool_id, node, seq) = pool.extract(id1_2);
-    assert_eq!(ts, 12345);
-    assert_eq!(pool_id, 0);
-    assert_eq!(node, 3);
-    assert_eq!(seq, 1);
-
-    let (ts, pool_id, node, seq) = pool.extract(id2_1);
-    assert_eq!(ts, 12345);
-    assert_eq!(pool_id, 1);
-    assert_eq!(node, 3);
-    assert_eq!(seq, 0);
-
-    let (ts, pool_id, node, seq) = pool.extract(id2_2);
-    assert_eq!(ts, 12345);
-    assert_eq!(pool_id, 1);
-    assert_eq!(node, 3);
-    assert_eq!(seq, 1);
-
-    let (ts, pool_id, node, seq) = pool.extract(id3_1);
-    assert_eq!(ts, 12345);
-    assert_eq!(pool_id, 2);
-    assert_eq!(node, 3);
-    assert_eq!(seq, 0);
-
-    let (ts, pool_id, node, seq) = pool.extract(id3_2);
-    assert_eq!(ts, 12345);
-    assert_eq!(pool_id, 2);
-    assert_eq!(node, 3);
-    assert_eq!(seq, 1);
-}
-
-#[test]
-fn test_pool_len() {
-    let pool = GeneratorPool::new(10, GeneratorPoolOptions::default());
-
-    {
-        let pool = (pool.inner).0.lock().unwrap();
-        assert_eq!(pool.pool.len(), 10);
+        if pool_id == 0 {
+            assert_eq!(counters.0, seq);
+            counters.0 += 1;
+            ok.0 = true;
+        } else {
+            assert_eq!(counters.1, seq);
+            counters.1 += 1;
+            ok.1 = true;
+        }
     }
 
-    let g = pool.get_generator();
-
-    {
-        let pool = (pool.inner).0.lock().unwrap();
-        assert_eq!(pool.pool.len(), 9);
-    }
-
-    drop(g);
-
-    {
-        let pool = (pool.inner).0.lock().unwrap();
-        assert_eq!(pool.pool.len(), 10);
-    }
+    assert!(ok.0 && ok.1);
 }
