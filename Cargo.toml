@@ -1,12 +1,12 @@
 [package]
 name = "frostflake"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Daisuke Murase <typester@cpan.org>"]
 
 description = "Customizable and thread-safe distributed id generator"
 repository = "https://github.com/typester/frostflake-rs"
 keywords = ["distributed", "id", "generator", "snowflake"]
-categories = ["database"]
+categories = ["encoding"]
 license = "MIT"
 
 [dependencies]
