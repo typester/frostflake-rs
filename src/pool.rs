@@ -263,7 +263,7 @@ fn test_pool_extract_poolnode() {
 
     let mut ok = (false, false);
     let mut counters = (0, 0);
-    for _ in 1..10 {
+    for _ in 1..1000 {
         let id = pool.generate();
         let (ts, pool_id, node, seq) = pool.extract(id);
 
