@@ -130,8 +130,8 @@ fn default_time_fn() -> u64 {
     t.as_secs() * 1000 + (t.subsec_nanos() as u64) / 1000000
 }
 
-impl GeneratorOptions {
-    pub fn default() -> GeneratorOptions {
+impl Default for GeneratorOptions {
+    fn default() -> Self {
         GeneratorOptions {
             bits: (42, 10, 12),
             base_ts: 1483228800000, // 2017-01-01T00:00:00Z as milliseconds
@@ -139,7 +139,9 @@ impl GeneratorOptions {
             time_fn: default_time_fn,
         }
     }
+}
 
+impl GeneratorOptions {
     pub fn time_fn(mut self, time_fn: fn() -> u64) -> Self {
         self.time_fn = time_fn;
         self
