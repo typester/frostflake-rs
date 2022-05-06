@@ -1,6 +1,5 @@
 # frostflake
 
-[![Build Status](https://travis-ci.org/typester/frostflake-rs.svg?branch=master)](https://travis-ci.org/typester/frostflake-rs)
 [![Crates.io](https://img.shields.io/crates/v/frostflake.svg)](https://crates.io/crates/frostflake)
 
 Customizable and thread-safe distributed id generator, like twitter's [snowflake](https://github.com/twitter/snowflake).

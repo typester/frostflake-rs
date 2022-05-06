@@ -1,17 +1,17 @@
 //! # frostflake
-//! 
+//!
 //! [![Build Status](https://travis-ci.org/typester/frostflake-rs.svg?branch=master)](https://travis-ci.org/typester/frostflake-rs)
-//! 
+//!
 //! Customizable and thread-safe distributed id generator, like twitter's [snowflake](https://github.com/twitter/snowflake).
-//! 
+//!
 //! ## Basic usage for single generator
-//! 
+//!
 //! ```rust
 //! use frostflake::{Generator, GeneratorOptions};
 //! use std::thread;
-//! 
+//!
 //! let generator = Generator::new(GeneratorOptions::default());
-//! 
+//!
 //! {
 //!     // generator can be shared with threads by std::sync::Arc
 //!     let generator = generator.clone();
@@ -21,16 +21,16 @@
 //!     }).join();
 //! }
 //! ```
-//! 
+//!
 //! ## Use multi generator by GeneratorPool
-//! 
+//!
 //! ```rust
 //! use frostflake::{GeneratorPool, GeneratorPoolOptions};
 //! use std::thread;
-//! 
+//!
 //! // create 10 generators
 //! let pool = GeneratorPool::new(10, GeneratorPoolOptions::default());
-//! 
+//!
 //! {
 //!     // pool also can be shared with threads by std::sync::Arc
 //!     let pool = pool.clone();
@@ -39,34 +39,34 @@
 //!     }).join();
 //! }
 //! ```
-//! 
+//!
 //! ## Configurations
-//! 
+//!
 //! frostflake is highly configurable.
-//! 
+//!
 //! ```rust
 //! use frostflake::{Generator, GeneratorOptions};
-//! 
+//!
 //! let opts = GeneratorOptions::default()
 //!     .bits(42, 10, 12)           // 42bit timestamp, 10bit node, 12bit sequence
 //!     .base_ts(1483228800000)     // base time 2017-01-01T00:00:00Z as milliseonds
 //!     .node(3);                   // node number
-//! 
+//!
 //! let generator = Generator::new(opts);
 //! ```
-//! 
+//!
 //! Also, time function is can be set.
 //! If you want to use plain seconds unit instead of millisedond, you can do by this:
-//! 
+//!
 //! ```rust
 //! use frostflake::{Generator, GeneratorOptions};
 //! use std::time::{SystemTime, UNIX_EPOCH};
-//! 
+//!
 //! fn my_time() -> u64 {
 //!     let t = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
 //!     t.as_secs()
 //! }
-//! 
+//!
 //! // use smaller time bits (because this is not milliseconds)
 //! // use larger sequence bits
 //! let opts = GeneratorOptions::default()
@@ -74,31 +74,31 @@
 //!     .bits(36, 10, 18)
 //!     .base_ts(1483228800) // base time should be second too
 //!     .time_fn(my_time); // set my time function
-//! 
+//!
 //! let generator = Generator::new(opts);
 //! ```
-//! 
+//!
 //! ### Default configurations
-//! 
+//!
 //! #### Generator
-//! 
+//!
 //! |Options| Default value|
 //! |---|---|
 //! |bits| 42=timestamp, 10=node, 12=sequence |
 //! |base\_ts|1483228800000 (2017-01-01T00:00:00Z as milliseonds)|
 //! |node|0|
 //! |time\_fn|return current milliseonds|
-//! 
+//!
 //! #### GeneratorPool
-//! 
+//!
 //! Almost same as Generator, but GeneratorPool uses `pool_id` bit for distinguish each pools.
-//! 
+//!
 //! So default bit widths is:
-//! 
+//!
 //! |Options| Default value|
 //! |---|---|
 //! |bits| 42=timestamp, 4=pool_id, 6=node, 12=sequence |
-//! 
+//!
 //! All other options are same with Generator.
 
 extern crate crossbeam;
@@ -130,8 +130,8 @@ fn default_time_fn() -> u64 {
     t.as_secs() * 1000 + (t.subsec_nanos() as u64) / 1000000
 }
 
-impl GeneratorOptions {
-    pub fn default() -> GeneratorOptions {
+impl Default for GeneratorOptions {
+    fn default() -> Self {
         GeneratorOptions {
             bits: (42, 10, 12),
             base_ts: 1483228800000, // 2017-01-01T00:00:00Z as milliseconds
@@ -139,35 +139,47 @@ impl GeneratorOptions {
             time_fn: default_time_fn,
         }
     }
+}
 
+impl GeneratorOptions {
     pub fn time_fn(mut self, time_fn: fn() -> u64) -> Self {
         self.time_fn = time_fn;
         self
     }
 
     pub fn bits(mut self, ts_bits: u8, node_bits: u8, seq_bits: u8) -> Self {
-        assert!(64 == ts_bits + node_bits + seq_bits,
-                "bits set should be total 64bit");
-        assert!(self.base_ts <= max(ts_bits),
-                "base_ts exceeds ts_bits limit, set base_ts first");
-        assert!(self.node <= max(node_bits),
-                "node number exceeeds node_bits limit, set node number first");
+        assert!(
+            64 == ts_bits + node_bits + seq_bits,
+            "bits set should be total 64bit"
+        );
+        assert!(
+            self.base_ts <= max(ts_bits),
+            "base_ts exceeds ts_bits limit, set base_ts first"
+        );
+        assert!(
+            self.node <= max(node_bits),
+            "node number exceeeds node_bits limit, set node number first"
+        );
 
         self.bits = (ts_bits, node_bits, seq_bits);
         self
     }
 
     pub fn node(mut self, node: u64) -> Self {
-        assert!(node <= max(self.bits.1),
-                "node number exceeds node_bits limit, set bit width first");
+        assert!(
+            node <= max(self.bits.1),
+            "node number exceeds node_bits limit, set bit width first"
+        );
 
         self.node = node;
         self
     }
 
     pub fn base_ts(mut self, base_ts: u64) -> Self {
-        assert!(base_ts <= max(self.bits.0),
-                "base_ts exceeds ts_bits limit, set bit width first");
+        assert!(
+            base_ts <= max(self.bits.0),
+            "base_ts exceeds ts_bits limit, set bit width first"
+        );
 
         self.base_ts = base_ts;
         self
@@ -189,10 +201,14 @@ impl Generator {
 
     pub fn generate(&mut self) -> u64 {
         let now = (self.opts.time_fn)();
-        assert!(now > self.opts.base_ts,
-                "time_fn returned the time before base_ts");
-        assert!(now >= self.last_ts,
-                "clock moved backwards. check your NTP setup");
+        assert!(
+            now > self.opts.base_ts,
+            "time_fn returned the time before base_ts"
+        );
+        assert!(
+            now >= self.last_ts,
+            "clock moved backwards. check your NTP setup"
+        );
 
         let elapsed = now - self.opts.base_ts;
 
@@ -208,8 +224,9 @@ impl Generator {
         self.last_ts = now;
         self.seq = seq;
 
-        ((elapsed << (node_bits + seq_bits)) & ts_mask) |
-        ((self.opts.node << seq_bits) & node_mask) | seq & max(seq_bits)
+        ((elapsed << (node_bits + seq_bits)) & ts_mask)
+            | ((self.opts.node << seq_bits) & node_mask)
+            | seq & max(seq_bits)
     }
 
     pub fn extract(&self, id: u64) -> (u64, u64, u64) {
@@ -245,7 +262,6 @@ fn test_basic() {
     assert_eq!(g.generate(), (123 << 22));
     assert_eq!(g.generate(), (123 << 22) + 1);
     assert_eq!(g.generate(), (123 << 22) + 2);
-
 }
 
 #[test]
@@ -288,9 +304,9 @@ fn test_max() {
 }
 
 #[cfg(test)]
-use std::thread;
-#[cfg(test)]
 use std::collections::HashMap;
+#[cfg(test)]
+use std::thread;
 
 #[test]
 fn test_threaded() {
@@ -302,10 +318,12 @@ fn test_threaded() {
         let g = g.clone();
         let r = results.clone();
 
-        let handle = thread::spawn(move || for _ in 1..100 {
-            let mut g = g.lock().unwrap();
-            let mut r = r.lock().unwrap();
-            r.push(g.generate());
+        let handle = thread::spawn(move || {
+            for _ in 1..100 {
+                let mut g = g.lock().unwrap();
+                let mut r = r.lock().unwrap();
+                r.push(g.generate());
+            }
         });
         h.push(handle);
     }
