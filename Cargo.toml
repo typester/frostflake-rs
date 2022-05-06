@@ -1,6 +1,7 @@
 [package]
 name = "frostflake"
-version = "0.2.1"
+version = "0.3.0"
+edition = "2021"
 authors = ["Daisuke Murase <typester@cpan.org>"]
 
 description = "Customizable and thread-safe distributed id generator"
@@ -10,4 +11,4 @@ categories = ["encoding"]
 license = "MIT"
 
 [dependencies]
-crossbeam = "0.2.10"
+crossbeam = "~0.8"

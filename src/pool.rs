@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::thread;
-use crossbeam::sync::MsQueue;
+
+use crossbeam::channel::unbounded;
+use crossbeam::channel::Sender;
 
 use super::{Generator, GeneratorOptions};
 
@@ -25,28 +27,38 @@ impl Default for GeneratorPoolOptions {
 
 impl GeneratorPoolOptions {
     pub fn bits(mut self, ts_bits: u8, pool_bits: u8, node_bits: u8, seq_bits: u8) -> Self {
-        assert!(64 == ts_bits + pool_bits + node_bits + seq_bits,
-                "bits set should be total 64bit");
-        assert!(self.base_ts <= super::max(ts_bits),
-                "base_ts exceeds ts_bits limit, set base_ts first");
-        assert!(self.node <= super::max(node_bits),
-                "node number exceeds node_bits limit, set node number first");
+        assert!(
+            64 == ts_bits + pool_bits + node_bits + seq_bits,
+            "bits set should be total 64bit"
+        );
+        assert!(
+            self.base_ts <= super::max(ts_bits),
+            "base_ts exceeds ts_bits limit, set base_ts first"
+        );
+        assert!(
+            self.node <= super::max(node_bits),
+            "node number exceeds node_bits limit, set node number first"
+        );
 
         self.bits = (ts_bits, pool_bits, node_bits, seq_bits);
         self
     }
 
     pub fn base_ts(mut self, base_ts: u64) -> Self {
-        assert!(base_ts <= super::max(self.bits.0),
-                "base_ts exceeds ts_bits limit, set bit width first");
+        assert!(
+            base_ts <= super::max(self.bits.0),
+            "base_ts exceeds ts_bits limit, set bit width first"
+        );
 
         self.base_ts = base_ts;
         self
     }
 
     pub fn node(mut self, node: u64) -> Self {
-        assert!(node <= super::max(self.bits.2),
-                "node number exceeds node_bits limit, set bit width first");
+        assert!(
+            node <= super::max(self.bits.2),
+            "node number exceeds node_bits limit, set bit width first"
+        );
 
         self.node = node;
         self
@@ -59,46 +71,42 @@ impl GeneratorPoolOptions {
 }
 
 enum Message {
-    Job,
-    Exit,
+    Job(Sender<u64>),
 }
 
 pub struct GeneratorPool {
     size: usize,
     opts: GeneratorPoolOptions,
-    jobq: Arc<MsQueue<Message>>,
-    resq: Arc<MsQueue<u64>>,
+    tx: Sender<Message>,
 }
 
 impl GeneratorPool {
     pub fn new(size: usize, opts: GeneratorPoolOptions) -> Arc<GeneratorPool> {
         let generator_opts = GeneratorPool::generator_opts(opts.clone());
 
-        let jobq = Arc::new(MsQueue::new());
-        let resq = Arc::new(MsQueue::new());
+        let (tx, rx) = unbounded::<Message>();
 
         for i in 0..size {
-            let jobq = jobq.clone();
-            let resq = resq.clone();
+            let rx = rx.clone();
 
             let (_, _, node_bits, _) = opts.bits;
             let pool_mask = super::bitmask(node_bits);
             let node_mask = super::max(node_bits);
 
-            let opts = generator_opts.clone()
+            let opts = generator_opts
+                .clone()
                 .node((((i as u64) << node_bits) & pool_mask) | (opts.node & node_mask));
 
             thread::spawn(move || {
                 let mut generator = Generator::new_raw(opts);
 
-                loop {
-                    let msg = jobq.pop();
-
+                while let Ok(msg) = rx.recv() {
                     match msg {
-                        Message::Job => {
-                            resq.push(generator.generate());
+                        Message::Job(tx) => {
+                            if let Err(e) = tx.send(generator.generate()) {
+                                eprintln!("Failed to send generated result: {:?}", e);
+                            }
                         }
-                        Message::Exit => break,
                     }
                 }
             });
@@ -107,8 +115,7 @@ impl GeneratorPool {
         Arc::new(GeneratorPool {
             size: size,
             opts: opts,
-            jobq: jobq,
-            resq: resq,
+            tx,
         })
     }
 
@@ -121,8 +128,13 @@ impl GeneratorPool {
     }
 
     pub fn generate(&self) -> u64 {
-        self.jobq.push(Message::Job);
-        self.resq.pop()
+        let (tx, rx) = unbounded();
+
+        if let Err(e) = self.tx.send(Message::Job(tx)) {
+            eprintln!("failed to send generate request: {:?}", e);
+        }
+
+        rx.recv().unwrap()
     }
 
     pub fn extract(&self, id: u64) -> (u64, u64, u64, u64) {
@@ -134,14 +146,6 @@ impl GeneratorPool {
         let node = poolnode & super::max(node_bits);
 
         (ts, pool, node, seq)
-    }
-}
-
-impl Drop for GeneratorPool {
-    fn drop(&mut self) {
-        for _ in 0..self.size {
-            self.jobq.push(Message::Exit);
-        }
     }
 }
 
@@ -206,9 +210,11 @@ fn test_pool() {
         let pool = pool.clone();
         let results = results.clone();
 
-        handles.push(thread::spawn(move || for _ in 0..10 {
-            let mut results = results.lock().unwrap();
-            results.push(pool.generate());
+        handles.push(thread::spawn(move || {
+            for _ in 0..10 {
+                let mut results = results.lock().unwrap();
+                results.push(pool.generate());
+            }
         }));
     }
 
