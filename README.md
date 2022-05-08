@@ -4,25 +4,53 @@
 
 Customizable and thread-safe distributed id generator, like twitter's [snowflake](https://github.com/twitter/snowflake).
 
-## Basic usage for single generator
+## Simple usage for single generator
 
 ```rust
 use frostflake::{Generator, GeneratorOptions};
-use std::thread;
 
-let generator = Generator::new(GeneratorOptions::default());
+let mut generator = Generator::new(GeneratorOptions::default());
 
-{
-    // generator can be shared with threads by std::sync::Arc
-    let generator = generator.clone();
-    thread::spawn(move || {
-        let mut generator = generator.lock().unwrap();
-        let id = generator.generate();
-    }).join();
+let id1 = generator.generate();
+let id2 = generator.generate();
+let id3 = generator.generate();
+```
+
+## Async generator works with tokio
+
+This requires `tokio` feature.
+
+```rust
+use frostflake::{GeneratorAsync, GeneratorOptions};
+
+#[tokio::main]
+async fn main() {
+    let generator = GeneratorAsync::spawn(GeneratorOptions::default());
+
+    let id1 = generator.generate().await.unwrap();
 }
 ```
 
-## Use multi generator by GeneratorPool
+`GeneratorAsync` is `Send` so that you can pass it to other threads or tasks safely.
+
+```rust
+use frostflake::{GeneratorAsync, GeneratorOptions};
+
+#[tokio::main]
+async fn main() {
+    let g = GeneratorAsync::spawn(GeneratorOptions::default());
+    for _ in 0..10 {
+        let g = g.clone();
+        tokio::spawn(async move {
+            let id = g.generate().await.unwrap();
+        });
+    }
+}
+```
+
+## Multi-threads generator by GeneratorPool
+
+This requires `std-thread` feature.
 
 ```rust
 use frostflake::{GeneratorPool, GeneratorPoolOptions};
@@ -100,3 +128,10 @@ So default bit widths is:
 |bits| 42=timestamp, 4=pool_id, 6=node, 12=sequence |
 
 All other options are same with Generator.
+
+## TODO
+
+- Support redis based automatic node_id generation like [katsubushi](https://github.com/kayac/go-katsubushi)
+- Support other async runtimes?
+
+Patches or pull-requests are always welcome.

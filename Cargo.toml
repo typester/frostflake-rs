@@ -1,6 +1,6 @@
 [package]
 name = "frostflake"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["Daisuke Murase <typester@cpan.org>"]
 
@@ -10,5 +10,16 @@ keywords = ["distributed", "id", "generator", "snowflake"]
 categories = ["encoding"]
 license = "MIT"
 
+[features]
+default = []
+all = ["tokio", "std-thread"]
+tokio = ["dep:tokio", "dep:anyhow"]
+std-thread = ["dep:crossbeam"]
+
 [dependencies]
-crossbeam = "~0.8"
+anyhow = { version = "~1.0.57", optional = true }
+crossbeam = { version = "~0.8", optional = true }
+tokio = { version = "~1.18.1", features = ["rt","sync"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "~1.18.1", features = ["full"] }

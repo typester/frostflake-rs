@@ -1,30 +1,58 @@
 //! # frostflake
 //!
-//! [![Build Status](https://travis-ci.org/typester/frostflake-rs.svg?branch=master)](https://travis-ci.org/typester/frostflake-rs)
+//! [![Crates.io](https://img.shields.io/crates/v/frostflake.svg)](https://crates.io/crates/frostflake)
 //!
 //! Customizable and thread-safe distributed id generator, like twitter's [snowflake](https://github.com/twitter/snowflake).
 //!
-//! ## Basic usage for single generator
+//! ## Simple usage for single generator
 //!
 //! ```rust
 //! use frostflake::{Generator, GeneratorOptions};
-//! use std::thread;
 //!
-//! let generator = Generator::new(GeneratorOptions::default());
+//! let mut generator = Generator::new(GeneratorOptions::default());
 //!
-//! {
-//!     // generator can be shared with threads by std::sync::Arc
-//!     let generator = generator.clone();
-//!     thread::spawn(move || {
-//!         let mut generator = generator.lock().unwrap();
-//!         let id = generator.generate();
-//!     }).join();
+//! let id1 = generator.generate();
+//! let id2 = generator.generate();
+//! let id3 = generator.generate();
+//! ```
+//!
+//! ## Async generator works with tokio
+//!
+//! This requires `tokio` feature.
+//!
+//! ```ignore
+//! use frostflake::{GeneratorAsync, GeneratorOptions};
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let generator = GeneratorAsync::spawn(GeneratorOptions::default());
+//!
+//!     let id1 = generator.generate().await.unwrap();
 //! }
 //! ```
 //!
-//! ## Use multi generator by GeneratorPool
+//! `GeneratorAsync` is `Send` so that you can pass it to other threads or tasks safely.
 //!
-//! ```rust
+//! ```ignore
+//! use frostflake::{GeneratorAsync, GeneratorOptions};
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let g = GeneratorAsync::spawn(GeneratorOptions::default());
+//!     for _ in 0..10 {
+//!         let g = g.clone();
+//!         tokio::spawn(async move {
+//!             let id = g.generate().await.unwrap();
+//!         });
+//!     }
+//! }
+//! ```
+//!
+//! ## Multi-threads generator by GeneratorPool
+//!
+//! This requires `std-thread` feature.
+//!
+//! ```ignore
 //! use frostflake::{GeneratorPool, GeneratorPoolOptions};
 //! use std::thread;
 //!
@@ -100,15 +128,26 @@
 //! |bits| 42=timestamp, 4=pool_id, 6=node, 12=sequence |
 //!
 //! All other options are same with Generator.
+//!
+//! ## TODO
+//!
+//! - Support redis based automatic node_id generation like [katsubushi](https://github.com/kayac/go-katsubushi)
+//! - Support other async runtimes?
+//!
+//! Patches or pull-requests are always welcome.# frostflake
 
-extern crate crossbeam;
-
-use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::u64::MAX;
 
+#[cfg(feature = "tokio")]
+pub mod tokio;
+
+#[cfg(feature = "std-thread")]
 pub mod pool;
 
+#[cfg(feature = "tokio")]
+pub use crate::tokio::GeneratorAsync;
+#[cfg(feature = "std-thread")]
 pub use pool::{GeneratorPool, GeneratorPoolOptions};
 
 #[derive(Clone)]
@@ -187,13 +226,9 @@ impl GeneratorOptions {
 }
 
 impl Generator {
-    pub fn new(opts: GeneratorOptions) -> Arc<Mutex<Generator>> {
-        Arc::new(Mutex::new(Generator::new_raw(opts)))
-    }
-
-    pub fn new_raw(opts: GeneratorOptions) -> Generator {
+    pub fn new(opts: GeneratorOptions) -> Generator {
         Generator {
-            opts: opts,
+            opts,
             last_ts: 0,
             seq: 0,
         }
@@ -248,95 +283,94 @@ fn max(shift: u8) -> u64 {
     !bitmask(shift)
 }
 
-#[test]
-fn test_basic() {
-    fn my_time_fn() -> u64 {
-        1483228800000 + 123
-    }
-
-    let opts = GeneratorOptions::default().time_fn(my_time_fn);
-
-    let g = Generator::new(opts);
-
-    let mut g = g.lock().unwrap();
-    assert_eq!(g.generate(), (123 << 22));
-    assert_eq!(g.generate(), (123 << 22) + 1);
-    assert_eq!(g.generate(), (123 << 22) + 2);
-}
-
-#[test]
-fn test_extract() {
-    fn my_time_fn() -> u64 {
-        1483228800000 + 123
-    }
-
-    let opts = GeneratorOptions::default().time_fn(my_time_fn).node(3);
-
-    let g = Generator::new(opts);
-
-    let mut g = g.lock().unwrap();
-
-    let id = g.generate();
-    let (ts, node, seq) = g.extract(id);
-    assert_eq!(ts, 123);
-    assert_eq!(node, 3);
-    assert_eq!(seq, 0);
-
-    let id = g.generate();
-    let (ts, node, seq) = g.extract(id);
-    assert_eq!(ts, 123);
-    assert_eq!(node, 3);
-    assert_eq!(seq, 1);
-}
-
-#[test]
-fn test_bitmask() {
-    assert_eq!(bitmask(1), 0xFFFFFFFFFFFFFFFE);
-    assert_eq!(bitmask(4), 0xFFFFFFFFFFFFFFF0);
-    assert_eq!(bitmask(8), 0xFFFFFFFFFFFFFF00);
-}
-
-#[test]
-fn test_max() {
-    assert_eq!(max(1), 1);
-    assert_eq!(max(2), 3);
-    assert_eq!(max(8), 255);
-}
-
 #[cfg(test)]
-use std::collections::HashMap;
-#[cfg(test)]
-use std::thread;
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
 
-#[test]
-fn test_threaded() {
-    let g = Generator::new(GeneratorOptions::default());
-    let mut h = vec![];
-    let results = Arc::new(Mutex::new(vec![]));
+    #[test]
+    fn test_basic() {
+        fn my_time_fn() -> u64 {
+            1483228800000 + 123
+        }
 
-    for _ in 1..10 {
-        let g = g.clone();
-        let r = results.clone();
+        let opts = GeneratorOptions::default().time_fn(my_time_fn);
 
-        let handle = thread::spawn(move || {
-            for _ in 1..100 {
-                let mut g = g.lock().unwrap();
-                let mut r = r.lock().unwrap();
-                r.push(g.generate());
-            }
-        });
-        h.push(handle);
+        let mut g = Generator::new(opts);
+        assert_eq!(g.generate(), (123 << 22));
+        assert_eq!(g.generate(), (123 << 22) + 1);
+        assert_eq!(g.generate(), (123 << 22) + 2);
     }
 
-    for handle in h {
-        let _ = handle.join();
+    #[test]
+    fn test_extract() {
+        fn my_time_fn() -> u64 {
+            1483228800000 + 123
+        }
+
+        let opts = GeneratorOptions::default().time_fn(my_time_fn).node(3);
+
+        let mut g = Generator::new(opts);
+
+        let id = g.generate();
+        let (ts, node, seq) = g.extract(id);
+        assert_eq!(ts, 123);
+        assert_eq!(node, 3);
+        assert_eq!(seq, 0);
+
+        let id = g.generate();
+        let (ts, node, seq) = g.extract(id);
+        assert_eq!(ts, 123);
+        assert_eq!(node, 3);
+        assert_eq!(seq, 1);
     }
 
-    let mut hash: HashMap<u64, u64> = HashMap::new();
-    for r in results.lock().unwrap().iter() {
-        // check uniqueness
-        assert_eq!(hash.contains_key(r), false);
-        hash.insert(*r, 1);
-        assert_eq!(hash.contains_key(r), true);
+    #[test]
+    fn test_bitmask() {
+        assert_eq!(bitmask(1), 0xFFFFFFFFFFFFFFFE);
+        assert_eq!(bitmask(4), 0xFFFFFFFFFFFFFFF0);
+        assert_eq!(bitmask(8), 0xFFFFFFFFFFFFFF00);
+    }
+
+    #[test]
+    fn test_max() {
+        assert_eq!(max(1), 1);
+        assert_eq!(max(2), 3);
+        assert_eq!(max(8), 255);
+    }
+
+    #[test]
+    fn test_threaded() {
+        let g = Arc::new(Mutex::new(Generator::new(GeneratorOptions::default())));
+        let mut h = vec![];
+        let results = Arc::new(Mutex::new(vec![]));
+
+        for _ in 1..10 {
+            let g = g.clone();
+            let r = results.clone();
+
+            let handle = thread::spawn(move || {
+                for _ in 1..100 {
+                    let mut g = g.lock().unwrap();
+                    let mut r = r.lock().unwrap();
+                    r.push(g.generate());
+                }
+            });
+            h.push(handle);
+        }
+
+        for handle in h {
+            let _ = handle.join();
+        }
+
+        let mut hash: HashMap<u64, u64> = HashMap::new();
+        for r in results.lock().unwrap().iter() {
+            // check uniqueness
+            assert_eq!(hash.contains_key(r), false);
+            hash.insert(*r, 1);
+            assert_eq!(hash.contains_key(r), true);
+        }
     }
 }
