@@ -134,4 +134,4 @@ All other options are same with Generator.
 - Support redis based automatic node_id generation like [katsubushi](https://github.com/kayac/go-katsubushi)
 - Support other async runtimes?
 
-Patches or pull-requests are always welcome.# frostflake
+Patches or pull-requests are always welcome.
