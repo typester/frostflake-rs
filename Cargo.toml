@@ -10,5 +10,15 @@ keywords = ["distributed", "id", "generator", "snowflake"]
 categories = ["encoding"]
 license = "MIT"
 
+[features]
+default = []
+tokio = ["dep:tokio", "dep:anyhow"]
+std-thread = ["dep:crossbeam"]
+
 [dependencies]
-crossbeam = "~0.8"
+anyhow = { version = "~1.0.57", optional = true }
+crossbeam = { version = "~0.8", optional = true }
+tokio = { version = "~1.18.1", features = ["rt","sync"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "~1.18.1", features = ["full"] }
