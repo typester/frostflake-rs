@@ -9,7 +9,7 @@ Customizable and thread-safe distributed id generator, like twitter's [snowflake
 ```rust
 use frostflake::{Generator, GeneratorOptions};
 
-let generator = Generator::new(GeneratorOptions::default());
+let mut generator = Generator::new(GeneratorOptions::default());
 
 let id1 = generator.generate();
 let id2 = generator.generate();
@@ -23,27 +23,34 @@ This requires `tokio` feature.
 ```rust
 use frostflake::{GeneratorAsync, GeneratorOptions};
 
-let generator = GeneratorAsync::spawn(GeneratorOptions::default());
+#[tokio::main]
+async fn main() {
+    let generator = GeneratorAsync::spawn(GeneratorOptions::default());
 
-let id1 = generator.generate();
+    let id1 = generator.generate().await.unwrap();
+}
 ```
 
 `GeneratorAsync` is `Send` so that you can pass it to other threads or tasks safely.
 
 ```rust
-let g = GeneratorAsync::spawn(GeneratorOptions::default());
-for _ in 0..10 {
-    let g = g.clone();
-    tokio::spawn(async move {
-        let id = g.generate().await.unwrap();
-    });
+use frostflake::{GeneratorAsync, GeneratorOptions};
+
+#[tokio::main]
+async fn main() {
+    let g = GeneratorAsync::spawn(GeneratorOptions::default());
+    for _ in 0..10 {
+        let g = g.clone();
+        tokio::spawn(async move {
+            let id = g.generate().await.unwrap();
+        });
+    }
 }
 ```
 
 ## Multi-threads generator by GeneratorPool
 
 This requires `std-thread` feature.
-
 
 ```rust
 use frostflake::{GeneratorPool, GeneratorPoolOptions};
@@ -127,4 +134,4 @@ All other options are same with Generator.
 - Support redis based automatic node_id generation like [katsubushi](https://github.com/kayac/go-katsubushi)
 - Support other async runtimes?
 
-Patches or pull-requests are always welcome.
+Patches or pull-requests are always welcome.# frostflake

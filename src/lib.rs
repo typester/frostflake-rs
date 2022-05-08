@@ -9,7 +9,7 @@
 //! ```rust
 //! use frostflake::{Generator, GeneratorOptions};
 //!
-//! let generator = Generator::new(GeneratorOptions::default());
+//! let mut generator = Generator::new(GeneratorOptions::default());
 //!
 //! let id1 = generator.generate();
 //! let id2 = generator.generate();
@@ -20,23 +20,31 @@
 //!
 //! This requires `tokio` feature.
 //!
-//! ```rust
+//! ```ignore
 //! use frostflake::{GeneratorAsync, GeneratorOptions};
 //!
-//! let generator = GeneratorAsync::spawn(GeneratorOptions::default());
+//! #[tokio::main]
+//! async fn main() {
+//!     let generator = GeneratorAsync::spawn(GeneratorOptions::default());
 //!
-//! let id1 = generator.generate();
+//!     let id1 = generator.generate().await.unwrap();
+//! }
 //! ```
 //!
 //! `GeneratorAsync` is `Send` so that you can pass it to other threads or tasks safely.
 //!
-//! ```rust
-//! let g = GeneratorAsync::spawn(GeneratorOptions::default());
-//! for _ in 0..10 {
-//!     let g = g.clone();
-//!     tokio::spawn(async move {
-//!         let id = g.generate().await.unwrap();
-//!     });
+//! ```ignore
+//! use frostflake::{GeneratorAsync, GeneratorOptions};
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let g = GeneratorAsync::spawn(GeneratorOptions::default());
+//!     for _ in 0..10 {
+//!         let g = g.clone();
+//!         tokio::spawn(async move {
+//!             let id = g.generate().await.unwrap();
+//!         });
+//!     }
 //! }
 //! ```
 //!
@@ -44,8 +52,7 @@
 //!
 //! This requires `std-thread` feature.
 //!
-//!
-//! ```rust
+//! ```ignore
 //! use frostflake::{GeneratorPool, GeneratorPoolOptions};
 //! use std::thread;
 //!
@@ -127,7 +134,8 @@
 //! - Support redis based automatic node_id generation like [katsubushi](https://github.com/kayac/go-katsubushi)
 //! - Support other async runtimes?
 //!
-//! Patches or pull-requests are always welcome.
+//! Patches or pull-requests are always welcome.# frostflake
+
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::u64::MAX;
 
@@ -137,6 +145,8 @@ pub mod tokio;
 #[cfg(feature = "std-thread")]
 pub mod pool;
 
+#[cfg(feature = "tokio")]
+pub use crate::tokio::GeneratorAsync;
 #[cfg(feature = "std-thread")]
 pub use pool::{GeneratorPool, GeneratorPoolOptions};
 

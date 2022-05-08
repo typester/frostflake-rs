@@ -12,6 +12,7 @@ license = "MIT"
 
 [features]
 default = []
+all = ["tokio", "std-thread"]
 tokio = ["dep:tokio", "dep:anyhow"]
 std-thread = ["dep:crossbeam"]
 
