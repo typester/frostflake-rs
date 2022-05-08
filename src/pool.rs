@@ -98,7 +98,7 @@ impl GeneratorPool {
                 .node((((i as u64) << node_bits) & pool_mask) | (opts.node & node_mask));
 
             thread::spawn(move || {
-                let mut generator = Generator::new_raw(opts);
+                let mut generator = Generator::new(opts);
 
                 while let Ok(msg) = rx.recv() {
                     match msg {
@@ -112,11 +112,7 @@ impl GeneratorPool {
             });
         }
 
-        Arc::new(GeneratorPool {
-            size: size,
-            opts: opts,
-            tx,
-        })
+        Arc::new(GeneratorPool { size, opts, tx })
     }
 
     fn generator_opts(opts: GeneratorPoolOptions) -> GeneratorOptions {
@@ -138,7 +134,7 @@ impl GeneratorPool {
     }
 
     pub fn extract(&self, id: u64) -> (u64, u64, u64, u64) {
-        let g = Generator::new_raw(GeneratorPool::generator_opts(self.opts.clone()));
+        let g = Generator::new(GeneratorPool::generator_opts(self.opts.clone()));
         let (_, pool_bits, node_bits, _) = self.opts.bits;
         let (ts, poolnode, seq) = g.extract(id);
 
@@ -150,143 +146,146 @@ impl GeneratorPool {
 }
 
 #[cfg(test)]
-use std::sync::Mutex;
+mod test {
+    use super::*;
+    use std::sync::Mutex;
 
-#[test]
-fn test_options_default() {
-    let opts = GeneratorPoolOptions::default();
-    assert_eq!(opts.bits, (42, 4, 6, 12));
-    assert_eq!(opts.node, 0);
-    assert_eq!(opts.base_ts, 1483228800000);
-}
-
-#[test]
-fn test_options_set_base() {
-    let opts = GeneratorPoolOptions::default().base_ts(123);
-    assert_eq!(opts.base_ts, 123);
-}
-
-#[test]
-#[should_panic]
-fn test_options_set_base_crash() {
-    let max = super::max(42);
-    let _ = GeneratorPoolOptions::default().base_ts(max + 1);
-}
-
-#[test]
-fn test_options_set_node() {
-    let opts = GeneratorPoolOptions::default().node(10);
-    assert_eq!(opts.node, 10);
-}
-
-#[test]
-#[should_panic]
-fn test_options_set_node_crash() {
-    let max = super::max(6);
-    let _ = GeneratorPoolOptions::default().node(max + 1);
-}
-
-#[test]
-fn test_options_set_time_fn() {
-    fn test_fn() -> u64 {
-        1483228800000 + 123
+    #[test]
+    fn test_options_default() {
+        let opts = GeneratorPoolOptions::default();
+        assert_eq!(opts.bits, (42, 4, 6, 12));
+        assert_eq!(opts.node, 0);
+        assert_eq!(opts.base_ts, 1483228800000);
     }
 
-    let opts = GeneratorPoolOptions::default().time_fn(test_fn);
-    assert_eq!((opts.time_fn)(), 1483228800000 + 123);
-}
-
-#[cfg(test)]
-use std::collections::HashMap;
-
-#[test]
-fn test_pool() {
-    let pool = GeneratorPool::new(3, GeneratorPoolOptions::default());
-
-    let mut handles = vec![];
-    let results = Arc::new(Mutex::new(vec![]));
-
-    for _ in 0..10 {
-        let pool = pool.clone();
-        let results = results.clone();
-
-        handles.push(thread::spawn(move || {
-            for _ in 0..10 {
-                let mut results = results.lock().unwrap();
-                results.push(pool.generate());
-            }
-        }));
+    #[test]
+    fn test_options_set_base() {
+        let opts = GeneratorPoolOptions::default().base_ts(123);
+        assert_eq!(opts.base_ts, 123);
     }
 
-    for h in handles {
-        let _ = h.join();
+    #[test]
+    #[should_panic]
+    fn test_options_set_base_crash() {
+        let max = super::super::max(42);
+        let _ = GeneratorPoolOptions::default().base_ts(max + 1);
     }
 
-    let mut hash: HashMap<u64, u64> = HashMap::new();
-    let results = results.lock().unwrap();
-    for r in results.iter() {
-        // check uniqueness
-        assert_eq!(hash.contains_key(r), false);
-        hash.insert(*r, 1);
-        assert_eq!(hash.contains_key(r), true);
-    }
-}
-
-#[test]
-fn test_pool_extract() {
-    fn test_fn() -> u64 {
-        1483228800000 + 12345
+    #[test]
+    fn test_options_set_node() {
+        let opts = GeneratorPoolOptions::default().node(10);
+        assert_eq!(opts.node, 10);
     }
 
-    let opts = GeneratorPoolOptions::default().time_fn(test_fn);
-
-    let pool = GeneratorPool::new(1, opts.clone());
-
-    let g = Generator::new_raw(GeneratorPool::generator_opts(opts.clone()));
-
-    let id = pool.generate();
-    let (ts, node, seq) = g.extract(id);
-    assert_eq!(ts, 12345);
-    assert_eq!(node, 0);
-    assert_eq!(seq, 0);
-
-    let id = pool.generate();
-    let (ts, node, seq) = g.extract(id);
-    assert_eq!(ts, 12345);
-    assert_eq!(node, 0);
-    assert_eq!(seq, 1);
-}
-
-#[test]
-fn test_pool_extract_poolnode() {
-    fn test_fn() -> u64 {
-        1483228800000 + 12345
+    #[test]
+    #[should_panic]
+    fn test_options_set_node_crash() {
+        let max = super::super::max(6);
+        let _ = GeneratorPoolOptions::default().node(max + 1);
     }
 
-    let opts = GeneratorPoolOptions::default().time_fn(test_fn).node(3);
+    #[test]
+    fn test_options_set_time_fn() {
+        fn test_fn() -> u64 {
+            1483228800000 + 123
+        }
 
-    let pool = GeneratorPool::new(2, opts);
+        let opts = GeneratorPoolOptions::default().time_fn(test_fn);
+        assert_eq!((opts.time_fn)(), 1483228800000 + 123);
+    }
 
-    let mut ok = (false, false);
-    let mut counters = (0, 0);
-    for _ in 1..1000 {
-        let id = pool.generate();
-        let (ts, pool_id, node, seq) = pool.extract(id);
+    #[cfg(test)]
+    use std::collections::HashMap;
 
-        assert_eq!(ts, 12345);
-        assert_eq!(node, 3);
-        assert!(pool_id == 0 || pool_id == 1);
+    #[test]
+    fn test_pool() {
+        let pool = GeneratorPool::new(3, GeneratorPoolOptions::default());
 
-        if pool_id == 0 {
-            assert_eq!(counters.0, seq);
-            counters.0 += 1;
-            ok.0 = true;
-        } else {
-            assert_eq!(counters.1, seq);
-            counters.1 += 1;
-            ok.1 = true;
+        let mut handles = vec![];
+        let results = Arc::new(Mutex::new(vec![]));
+
+        for _ in 0..10 {
+            let pool = pool.clone();
+            let results = results.clone();
+
+            handles.push(thread::spawn(move || {
+                for _ in 0..10 {
+                    let mut results = results.lock().unwrap();
+                    results.push(pool.generate());
+                }
+            }));
+        }
+
+        for h in handles {
+            let _ = h.join();
+        }
+
+        let mut hash: HashMap<u64, u64> = HashMap::new();
+        let results = results.lock().unwrap();
+        for r in results.iter() {
+            // check uniqueness
+            assert_eq!(hash.contains_key(r), false);
+            hash.insert(*r, 1);
+            assert_eq!(hash.contains_key(r), true);
         }
     }
 
-    assert!(ok.0 && ok.1);
+    #[test]
+    fn test_pool_extract() {
+        fn test_fn() -> u64 {
+            1483228800000 + 12345
+        }
+
+        let opts = GeneratorPoolOptions::default().time_fn(test_fn);
+
+        let pool = GeneratorPool::new(1, opts.clone());
+
+        let g = Generator::new(GeneratorPool::generator_opts(opts.clone()));
+
+        let id = pool.generate();
+        let (ts, node, seq) = g.extract(id);
+        assert_eq!(ts, 12345);
+        assert_eq!(node, 0);
+        assert_eq!(seq, 0);
+
+        let id = pool.generate();
+        let (ts, node, seq) = g.extract(id);
+        assert_eq!(ts, 12345);
+        assert_eq!(node, 0);
+        assert_eq!(seq, 1);
+    }
+
+    #[test]
+    fn test_pool_extract_poolnode() {
+        fn test_fn() -> u64 {
+            1483228800000 + 12345
+        }
+
+        let opts = GeneratorPoolOptions::default().time_fn(test_fn).node(3);
+
+        let pool = GeneratorPool::new(2, opts);
+
+        let mut ok = (false, false);
+        let mut counters = (0, 0);
+        for _ in 1..1000 {
+            let id = pool.generate();
+            let (ts, pool_id, node, seq) = pool.extract(id);
+
+            assert_eq!(ts, 12345);
+            assert_eq!(node, 3);
+            assert!(pool_id == 0 || pool_id == 1);
+
+            if pool_id == 0 {
+                assert_eq!(counters.0, seq);
+                counters.0 += 1;
+                ok.0 = true;
+            } else {
+                assert_eq!(counters.1, seq);
+                counters.1 += 1;
+                ok.1 = true;
+            }
+        }
+
+        assert!(ok.0 && ok.1);
+    }
 }
