@@ -1,6 +1,6 @@
 [package]
 name = "frostflake"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 authors = ["Daisuke Murase <typester@cpan.org>"]
 
@@ -19,7 +19,7 @@ std-thread = ["dep:crossbeam"]
 [dependencies]
 anyhow = { version = "~1.0.57", optional = true }
 crossbeam = { version = "~0.8", optional = true }
-tokio = { version = "~1.18.1", features = ["rt","sync"], optional = true }
+tokio = { version = "1", features = ["rt","sync"], optional = true }
 
 [dev-dependencies]
-tokio = { version = "~1.18.1", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
